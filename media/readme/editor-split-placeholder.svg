@@ -1,0 +1,22 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="720" fill="#171b22"/>
+  <rect x="26" y="26" width="770" height="668" rx="18" fill="#1f2430" stroke="#313a49"/>
+  <rect x="820" y="26" width="434" height="668" rx="18" fill="#1b2029" stroke="#313a49"/>
+  <rect x="54" y="72" width="440" height="18" rx="9" fill="#364055"/>
+  <rect x="54" y="114" width="640" height="12" rx="6" fill="#2b3240"/>
+  <rect x="54" y="140" width="590" height="12" rx="6" fill="#2b3240"/>
+  <rect x="54" y="166" width="500" height="12" rx="6" fill="#2b3240"/>
+  <rect x="866" y="92" width="340" height="88" rx="20" fill="#2f2d3d" stroke="#bb68ff" stroke-width="3"/>
+  <text x="1036" y="146" fill="#e1baff" font-family="Arial, sans-serif" font-size="36" text-anchor="middle">__start__</text>
+  <rect x="898" y="286" width="278" height="74" rx="20" fill="#2e243a" stroke="#bb68ff" stroke-width="3"/>
+  <text x="1037" y="332" fill="#f0c8ff" font-family="Arial, sans-serif" font-size="34" text-anchor="middle">agent</text>
+  <rect x="852" y="504" width="220" height="74" rx="20" fill="#24303f" stroke="#5aa4e7" stroke-width="3"/>
+  <text x="962" y="551" fill="#d6ebff" font-family="Arial, sans-serif" font-size="32" text-anchor="middle">action</text>
+  <rect x="1088" y="504" width="126" height="74" rx="20" fill="#39363a" stroke="#d6ab58" stroke-width="3"/>
+  <text x="1151" y="551" fill="#f7e4bf" font-family="Arial, sans-serif" font-size="28" text-anchor="middle">end</text>
+  <path d="M1036 180 L1036 286" stroke="#8d4bd7" stroke-width="4"/>
+  <path d="M1036 286 C1036 410 962 430 962 504" stroke="#5aa4e7" stroke-width="4" fill="none"/>
+  <path d="M1054 360 C1066 432 1151 438 1151 504" stroke="#8d4bd7" stroke-width="4" fill="none"/>
+  <text x="915" y="434" fill="#c7d8ea" font-family="Arial, sans-serif" font-size="24">continue</text>
+  <text x="1086" y="430" fill="#e8d3ff" font-family="Arial, sans-serif" font-size="24">end</text>
+</svg>

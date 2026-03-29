@@ -1,10 +1,26 @@
 {
   "name": "stateviz",
   "displayName": "StateViz",
-  "description": "Visualize LangGraph StateGraph flows from Python files in a VS Code preview panel.",
+  "description": "Preview LangGraph StateGraph flows from Python files directly beside the editor in VS Code.",
   "version": "0.0.1",
   "publisher": "local",
   "license": "MIT",
+  "keywords": [
+    "langgraph",
+    "python",
+    "mermaid",
+    "graph",
+    "visualization",
+    "workflow"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/stateviz"
+  },
+  "homepage": "https://github.com/your-org/stateviz#readme",
+  "bugs": {
+    "url": "https://github.com/your-org/stateviz/issues"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -12,12 +28,20 @@
     "Visualization",
     "Other"
   ],
+  "icon": "media/stateviz.svg",
   "activationEvents": [
     "onLanguage:python",
     "onCommand:stateviz.openPreview",
     "onCommand:stateviz.reveal"
   ],
   "main": "./dist/extension.js",
+  "files": [
+    "dist/**",
+    "media/**",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
   "contributes": {
     "commands": [
       {
@@ -48,9 +72,11 @@
     "build": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "node --test dist/test/**/*.test.js",
-    "pretest": "npm run build"
+    "pretest": "npm run build",
+    "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
+    "@vscode/vsce": "^3.6.2",
     "@types/node": "^22.14.1",
     "@types/vscode": "^1.90.0",
     "typescript": "^5.8.2"
