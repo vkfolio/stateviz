@@ -28,7 +28,7 @@
     "Visualization",
     "Other"
   ],
-  "icon": "media/stateviz.svg",
+  "icon": "media/stateviz.png",
   "activationEvents": [
     "onLanguage:python",
     "onCommand:stateviz.openPreview",
@@ -76,9 +76,10 @@
     "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
-    "@vscode/vsce": "^3.6.2",
     "@types/node": "^22.14.1",
     "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.6.2",
+    "pngjs": "^7.0.0",
     "typescript": "^5.8.2"
   },
   "dependencies": {
