@@ -1,0 +1,5 @@
+dist/test/**
+src/**
+tsconfig.json
+**/*.map
+**/*.ts
