@@ -2,7 +2,6 @@
 
 StateViz is a VS Code extension for previewing LangGraph `StateGraph` flows directly beside your Python editor. It watches the active Python file, detects opted-in graphs, and renders an interactive Mermaid-based preview with zoom and pan support.
 
-![StateViz preview](./Screenshot 2026-03-29 194929.png)
 
 ## Features
 
@@ -17,7 +16,7 @@ StateViz is a VS Code extension for previewing LangGraph `StateGraph` flows dire
 
 Main preview:
 
-![Main preview](./Screenshot%202026-03-29%20191339.png)
+![Main preview](./media/readme/main.png)
 
 Editor + preview layout placeholder:
 
