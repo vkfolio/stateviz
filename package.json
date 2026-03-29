@@ -3,7 +3,7 @@
   "displayName": "StateViz",
   "description": "Preview LangGraph StateGraph flows from Python files directly beside the editor in VS Code.",
   "version": "0.0.1",
-  "publisher": "local",
+  "publisher": "vigneshkarnika",
   "license": "MIT",
   "keywords": [
     "langgraph",
@@ -15,11 +15,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/stateviz"
+    "url": "https://github.com/vkfolio/stateviz"
   },
-  "homepage": "https://github.com/your-org/stateviz#readme",
+  "homepage": "https://github.com/vkfolio/stateviz#readme",
   "bugs": {
-    "url": "https://github.com/your-org/stateviz/issues"
+    "url": "https://github.com/vkfolio/stateviz/issues"
   },
   "engines": {
     "vscode": "^1.90.0"
