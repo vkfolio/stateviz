@@ -6,7 +6,8 @@ StateViz is a VS Code extension for previewing LangGraph `StateGraph` flows dire
 ## Features
 
 - Opens as an editor-side preview, similar to Markdown Preview
-- Detects opted-in Python files with a simple marker comment
+- Detects LangGraph Python files automatically, with optional marker overrides
+- Supports runtime enrichment through `compiled_graph.get_graph()`
 - Parses LangGraph `StateGraph` patterns without executing user code
 - Renders interactive Mermaid diagrams with zoom, pan, and reset controls
 - Supports multiple graphs in one file with a selector
@@ -29,10 +30,16 @@ Multi-graph selector placeholder:
 ## Quick Start
 
 1. Open a Python file.
-2. Add the marker comment:
+2. Markers are optional. StateViz auto-detects obvious LangGraph files. If you want explicit control, use:
 
 ```python
 # stateviz: langgraph
+```
+
+For runtime enrichment, the preview can auto-detect compiled graphs from ordinary `.compile()` results. You can still pin a specific symbol if needed:
+
+```python
+# stateviz: graph=app
 ```
 
 3. Define a supported LangGraph `StateGraph`.
@@ -66,6 +73,14 @@ Currently supported:
 - `set_finish_point(...)`
 - `add_conditional_edges(...)` when targets are statically recognizable
 
+Runtime enrichment:
+
+- Open a LangGraph Python file
+- Open the preview
+- Click `Use graph.get_graph()`
+- If the file contains multiple compiled graphs, use the dropdown to switch between them
+- Optional: add `# stateviz: graph=<compiled_symbol>` to force a specific runtime graph symbol
+
 ## Commands
 
 - `StateViz: Open Preview`
@@ -76,7 +91,7 @@ Currently supported:
 `stateviz.marker`
 
 - Default: `# stateviz: langgraph`
-- Controls the magic comment required before a file is parsed
+- Optional explicit opt-in marker; automatic LangGraph detection still works without it
 
 ## Development
 

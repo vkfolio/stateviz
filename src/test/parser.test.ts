@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { graphToMermaid } from "../mermaid";
-import { parseLangGraphStateGraphs } from "../parser";
+import { parseLangGraphStateGraphs, parseStateVizDirective } from "../parser";
 
-test("requires the opt-in marker", () => {
+test("returns no graph when a file has no marker and no recognizable langgraph pattern", () => {
   const result = parseLangGraphStateGraphs("graph = StateGraph(State)", "# stateviz: langgraph");
-  assert.equal(result.status, "missing-marker");
+  assert.equal(result.status, "no-graph");
   assert.equal(result.graphs.length, 0);
 });
 
@@ -78,4 +78,47 @@ builder.set_finish_point("draft")
   assert.match(mermaid, /flowchart TD/);
   assert.match(mermaid, /__start__/);
   assert.match(mermaid, /draft/);
+});
+
+test("accepts explicit runtime graph markers", () => {
+  const directive = parseStateVizDirective(
+    "# stateviz: graph=app\nbuilder = StateGraph(State)",
+    "# stateviz: langgraph",
+  );
+  assert.equal(directive.enabled, true);
+  assert.equal(directive.runtimeSymbol, "app");
+});
+
+test("keeps runtime symbol optional for plain opt-in marker", () => {
+  const directive = parseStateVizDirective(
+    "# stateviz: langgraph\nbuilder = StateGraph(State)",
+    "# stateviz: langgraph",
+  );
+  assert.equal(directive.enabled, true);
+  assert.equal(directive.runtimeSymbol, undefined);
+});
+
+test("auto-enables for obvious langgraph files without a marker", () => {
+  const directive = parseStateVizDirective(
+    'from langgraph.graph import StateGraph\nbuilder = StateGraph(State)\napp = builder.compile()',
+    "# stateviz: langgraph",
+  );
+  assert.equal(directive.enabled, true);
+  assert.equal(directive.runtimeSymbol, undefined);
+});
+
+test("renders conditional edges as dashed mermaid links", () => {
+  const source = `
+# stateviz: langgraph
+builder = StateGraph(State)
+builder.add_node("agent", agent)
+builder.add_node("tools", tools)
+builder.set_entry_point("agent")
+builder.add_conditional_edges("agent", route, {"end": END, "tools": "tools"})
+`;
+
+  const result = parseLangGraphStateGraphs(source, "# stateviz: langgraph");
+  const mermaid = graphToMermaid(result.graphs[0]);
+  assert.match(mermaid, /-\.\->\|end\|/);
+  assert.match(mermaid, /-\.\->\|tools\|/);
 });

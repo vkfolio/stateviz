@@ -40,8 +40,9 @@ export function graphToMermaid(graph: ParsedGraph): string {
   }
   for (const edge of graph.edges) {
     const edgeLabel = edge.label ? `|${escapeLabel(edge.label)}|` : "";
+    const connector = edge.conditional ? "-.->" : "-->";
     lines.push(
-      `  ${sanitizeMermaidId(edge.from)} -->${edgeLabel} ${sanitizeMermaidId(edge.to)}`,
+      `  ${sanitizeMermaidId(edge.from)} ${connector}${edgeLabel} ${sanitizeMermaidId(edge.to)}`,
     );
   }
   for (const node of graph.nodes) {

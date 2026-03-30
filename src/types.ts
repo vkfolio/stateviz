@@ -16,6 +16,7 @@ export interface GraphEdge {
   from: string;
   to: string;
   label?: string;
+  conditional?: boolean;
 }
 
 export interface ParsedGraph {
@@ -35,11 +36,26 @@ export interface ParseResult {
   message: string;
 }
 
+export interface StateVizDirective {
+  enabled: boolean;
+  runtimeSymbol?: string;
+}
+
+export interface RuntimeGraphResult {
+  graphs: ParsedGraph[];
+  interpreter: string;
+  symbol?: string;
+}
+
 export interface ViewState {
   fileName?: string;
   status: ParseStatus;
   message: string;
   warnings: string[];
+  sourceMode?: "static" | "runtime";
+  runtimeSymbol?: string;
+  runtimeEnabled: boolean;
+  runtimeBusy?: boolean;
   graphs: Array<{
     id: string;
     title: string;

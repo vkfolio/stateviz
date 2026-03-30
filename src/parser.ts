@@ -1,17 +1,20 @@
-import { ParsedGraph, ParseResult } from "./types";
+import { ParsedGraph, ParseResult, StateVizDirective } from "./types";
 
 const STATE_GRAPH_PATTERN = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*StateGraph\s*\(/;
 const COMPILE_PATTERN = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\.compile\s*\(/;
 const METHOD_CALL_PATTERN =
   /^\s*([A-Za-z_][A-Za-z0-9_]*)\.(add_node|add_edge|add_conditional_edges|set_entry_point|set_finish_point)\s*\((.*)\)\s*$/;
+const LANGGRAPH_IMPORT_PATTERN = /\bfrom\s+langgraph\b|\bimport\s+langgraph\b/;
 
 interface GraphAccumulator {
   builderName: string;
   compiledNames: string[];
   nodes: Map<string, string>;
-  edges: Array<{ from: string; to: string; label?: string }>;
+  edges: Array<{ from: string; to: string; label?: string; conditional?: boolean }>;
   warnings: string[];
 }
+
+const GRAPH_MARKER_PATTERN = /^\s*#\s*stateviz:\s*graph\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/m;
 
 function splitTopLevelArgs(input: string): string[] {
   const parts: string[] = [];
@@ -166,10 +169,11 @@ function pushEdge(
   from: string,
   to: string,
   label?: string,
+  conditional = false,
 ): void {
   ensureNode(accumulator, from);
   ensureNode(accumulator, to);
-  accumulator.edges.push({ from, to, label });
+  accumulator.edges.push({ from, to, label, conditional });
 }
 
 function parseAddNode(accumulator: GraphAccumulator, args: string): void {
@@ -219,14 +223,14 @@ function parseConditionalEdges(accumulator: GraphAccumulator, args: string): voi
 
   if (dictTargets) {
     for (const target of dictTargets) {
-      pushEdge(accumulator, source, target.target, target.label);
+      pushEdge(accumulator, source, target.target, target.label, true);
     }
     return;
   }
 
   if (listTargets) {
     for (const target of listTargets) {
-      pushEdge(accumulator, source, target, "conditional");
+      pushEdge(accumulator, source, target, "conditional", true);
     }
     return;
   }
@@ -268,7 +272,8 @@ export function parseLangGraphStateGraphs(
   source: string,
   marker: string,
 ): ParseResult {
-  if (!source.includes(marker)) {
+  const directive = parseStateVizDirective(source, marker);
+  if (!directive.enabled) {
     return {
       status: "missing-marker",
       graphs: [],
@@ -358,5 +363,38 @@ export function parseLangGraphStateGraphs(
       graphs.length === 1
         ? "Detected 1 StateGraph."
         : `Detected ${graphs.length} StateGraph instances.`,
+  };
+}
+
+export function parseStateVizDirective(
+  source: string,
+  marker: string,
+): StateVizDirective {
+  const runtimeMatch = source.match(GRAPH_MARKER_PATTERN);
+  if (runtimeMatch) {
+    return {
+      enabled: true,
+      runtimeSymbol: runtimeMatch[1],
+    };
+  }
+
+  if (source.includes(marker)) {
+    return {
+      enabled: true,
+    };
+  }
+
+  if (
+    STATE_GRAPH_PATTERN.test(source) ||
+    COMPILE_PATTERN.test(source) ||
+    LANGGRAPH_IMPORT_PATTERN.test(source)
+  ) {
+    return {
+      enabled: true,
+    };
+  }
+
+  return {
+    enabled: false,
   };
 }

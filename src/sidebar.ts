@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import { graphToMermaid } from "./mermaid";
-import { parseLangGraphStateGraphs } from "./parser";
-import { ParseResult, ViewState } from "./types";
+import { parseLangGraphStateGraphs, parseStateVizDirective } from "./parser";
+import { inspectRuntimeGraph } from "./runtime";
+import { ParseResult, RuntimeGraphResult, ViewState } from "./types";
 
 export class StateVizPanel {
   public static readonly viewType = "stateviz.preview";
@@ -10,11 +11,30 @@ export class StateVizPanel {
   private selectedGraphId?: string;
   private sourceDocumentUri?: string;
   private lastStateKey?: string;
-
+  private retryHandle?: NodeJS.Timeout;
+  private retryCount = 0;
+  private runtimeState?:
+    | {
+        documentUri: string;
+        status: "loading";
+        symbol: string;
+      }
+    | {
+        documentUri: string;
+        status: "success";
+        result: RuntimeGraphResult;
+      }
+    | {
+        documentUri: string;
+        status: "error";
+        symbol: string;
+        message: string;
+      };
+  
   public constructor(private readonly context: vscode.ExtensionContext) {}
 
   public async show(): Promise<void> {
-    this.captureEditorContext(vscode.window.activeTextEditor);
+    await this.captureBestSourceContext();
 
     if (this.panel) {
       this.panel.reveal(vscode.ViewColumn.Beside, true);
@@ -31,15 +51,18 @@ export class StateVizPanel {
       },
       {
         enableScripts: true,
-        retainContextWhenHidden: true,
         localResourceRoots: [
           this.context.extensionUri,
-          vscode.Uri.joinPath(this.context.extensionUri, "node_modules", "mermaid", "dist"),
+          vscode.Uri.joinPath(this.context.extensionUri, "media"),
         ],
       },
     );
 
     this.panel.onDidDispose(() => {
+      if (this.retryHandle) {
+        clearTimeout(this.retryHandle);
+        this.retryHandle = undefined;
+      }
       this.panel = undefined;
     });
 
@@ -47,6 +70,10 @@ export class StateVizPanel {
       if (message?.type === "selectGraph" && typeof message.graphId === "string") {
         this.selectedGraphId = message.graphId;
         void this.refresh();
+        return;
+      }
+      if (message?.type === "runRuntimeGraph") {
+        void this.runRuntimeGraph();
       }
     });
 
@@ -59,6 +86,7 @@ export class StateVizPanel {
       return;
     }
 
+    this.panel.webview.html = this.getHtml(this.panel.webview);
     this.panel.title = this.buildTitle();
     const state = await this.buildViewState();
     const stateKey = JSON.stringify({
@@ -66,6 +94,10 @@ export class StateVizPanel {
       status: state.status,
       message: state.message,
       warnings: state.warnings,
+      sourceMode: state.sourceMode,
+      runtimeSymbol: state.runtimeSymbol,
+      runtimeEnabled: state.runtimeEnabled,
+      runtimeBusy: state.runtimeBusy,
       selectedGraphId: state.selectedGraphId,
       graphs: state.graphs.map((graph) => ({
         id: graph.id,
@@ -81,15 +113,20 @@ export class StateVizPanel {
       payload: state,
       preserveViewport,
     });
+
+    if (state.status === "no-active-editor") {
+      this.scheduleRetryRefresh();
+    } else {
+      this.clearRetryRefresh();
+    }
   }
 
   private buildTitle(): string {
-    const document = this.getSourceDocument();
-    if (!document) {
+    if (!this.sourceDocumentUri) {
       return "StateViz Preview";
     }
 
-    return `StateViz: ${document.fileName.split(/[\\/]/).pop() ?? "Preview"}`;
+    return `StateViz: ${this.sourceDocumentUri.split(/[\\/]/).pop() ?? "Preview"}`;
   }
 
   public captureEditorContext(editor: vscode.TextEditor | undefined): boolean {
@@ -97,20 +134,101 @@ export class StateVizPanel {
       const nextUri = editor.document.uri.toString();
       const changed = this.sourceDocumentUri !== nextUri;
       this.sourceDocumentUri = nextUri;
+      if (changed) {
+        this.clearRetryRefresh();
+        this.runtimeState = undefined;
+      }
       return changed;
     }
     return false;
   }
 
   public shouldRefreshForDocument(document: vscode.TextDocument): boolean {
-    return document.uri.toString() === this.sourceDocumentUri;
+    return (
+      document.uri.toString() === this.sourceDocumentUri ||
+      (!this.sourceDocumentUri && document.languageId === "python")
+    );
   }
 
-  private getSourceDocument(): vscode.TextDocument | undefined {
+  public invalidateRuntimeForDocument(document: vscode.TextDocument): void {
+    if (this.runtimeState?.documentUri === document.uri.toString()) {
+      this.runtimeState = undefined;
+    }
+  }
+
+  private async captureBestSourceContext(): Promise<void> {
+    const activeEditorChanged = this.captureEditorContext(vscode.window.activeTextEditor);
+    if (activeEditorChanged || this.sourceDocumentUri) {
+      return;
+    }
+
+    const visiblePythonEditor = vscode.window.visibleTextEditors.find(
+      (editor) => editor.document.languageId === "python",
+    );
+    if (visiblePythonEditor) {
+      this.captureEditorContext(visiblePythonEditor);
+      return;
+    }
+
+    const openPythonDocument = vscode.workspace.textDocuments.find(
+      (document) => document.languageId === "python",
+    );
+    if (openPythonDocument) {
+      this.sourceDocumentUri = openPythonDocument.uri.toString();
+      return;
+    }
+
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        const input = tab.input;
+        let uri: vscode.Uri | undefined;
+
+        if (input instanceof vscode.TabInputText) {
+          uri = input.uri;
+        } else if (input instanceof vscode.TabInputTextDiff) {
+          uri = input.modified;
+        }
+
+        if (!uri) {
+          continue;
+        }
+
+        try {
+          const document = await vscode.workspace.openTextDocument(uri);
+          if (document.languageId === "python") {
+            this.sourceDocumentUri = document.uri.toString();
+            return;
+          }
+        } catch {
+          // Ignore tabs that cannot be resolved to a document.
+        }
+      }
+    }
+  }
+
+  private async getSourceDocument(): Promise<vscode.TextDocument | undefined> {
+    await this.captureBestSourceContext();
+
     const activeDocument = vscode.window.activeTextEditor?.document;
     if (activeDocument?.languageId === "python") {
       this.sourceDocumentUri = activeDocument.uri.toString();
       return activeDocument;
+    }
+
+    const visiblePythonDocument = vscode.window.visibleTextEditors.find(
+      (editor) => editor.document.languageId === "python",
+    )?.document;
+    if (visiblePythonDocument) {
+      this.sourceDocumentUri = visiblePythonDocument.uri.toString();
+      return visiblePythonDocument;
+    }
+
+    const openPythonDocument = vscode.workspace.textDocuments.find(
+      (document) => document.languageId === "python",
+    );
+    if (openPythonDocument) {
+      this.sourceDocumentUri = openPythonDocument.uri.toString();
+      return openPythonDocument;
     }
 
     if (!this.sourceDocumentUri) {
@@ -123,12 +241,13 @@ export class StateVizPanel {
   }
 
   private async buildViewState(): Promise<ViewState> {
-    const document = this.getSourceDocument();
+    const document = await this.getSourceDocument();
     if (!document) {
       return {
         status: "no-active-editor",
         message: "Open a Python file, then run StateViz Preview to inspect a LangGraph StateGraph.",
         warnings: [],
+        runtimeEnabled: false,
         graphs: [],
       };
     }
@@ -138,6 +257,7 @@ export class StateVizPanel {
         status: "not-python",
         message: "StateViz only inspects Python files.",
         warnings: [],
+        runtimeEnabled: false,
         graphs: [],
       };
     }
@@ -145,6 +265,7 @@ export class StateVizPanel {
     const marker = vscode.workspace
       .getConfiguration("stateviz")
       .get<string>("marker", "# stateviz: langgraph");
+    const directive = parseStateVizDirective(document.getText(), marker);
 
     let parseResult: ParseResult;
     try {
@@ -156,6 +277,55 @@ export class StateVizPanel {
         warnings: [],
         message:
           error instanceof Error ? error.message : "StateViz failed to parse the active file.",
+      };
+    }
+
+    const runtimeState =
+      this.runtimeState?.documentUri === document.uri.toString()
+        ? this.runtimeState
+        : undefined;
+
+    if (runtimeState?.status === "error") {
+      return {
+        fileName: document.fileName,
+        status: "parse-error",
+        message: runtimeState.symbol
+          ? `Runtime graph inspection failed for ${runtimeState.symbol}.`
+          : "Runtime graph inspection failed.",
+        warnings: [runtimeState.message],
+        sourceMode: "runtime",
+        runtimeSymbol: directive.runtimeSymbol,
+        runtimeEnabled: directive.enabled,
+        graphs: [],
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    if (runtimeState?.status === "success") {
+      const graphs = runtimeState.result.graphs.map((runtimeGraph) => ({
+        id: runtimeGraph.id,
+        title: runtimeGraph.title,
+        mermaid: graphToMermaid(runtimeGraph),
+        warnings: runtimeGraph.warnings,
+      }));
+      const selectedGraphId =
+        graphs.find((graph) => graph.id === this.selectedGraphId)?.id ?? graphs[0]?.id;
+
+      this.selectedGraphId = selectedGraphId;
+      return {
+        fileName: document.fileName,
+        status: "success",
+        message:
+          graphs.length === 1
+            ? `Runtime graph loaded using ${runtimeState.result.interpreter}.`
+            : `Loaded ${graphs.length} runtime graphs using ${runtimeState.result.interpreter}.`,
+        warnings: [],
+        sourceMode: "runtime",
+        runtimeSymbol: directive.runtimeSymbol,
+        runtimeEnabled: directive.enabled,
+        graphs,
+        selectedGraphId,
+        updatedAt: new Date().toISOString(),
       };
     }
 
@@ -178,22 +348,93 @@ export class StateVizPanel {
       status: parseResult.status,
       message: parseResult.message,
       warnings: parseResult.warnings,
+      sourceMode: "static",
+      runtimeSymbol: directive.runtimeSymbol,
+      runtimeEnabled: directive.enabled,
+      runtimeBusy: runtimeState?.status === "loading",
       graphs,
       selectedGraphId,
       updatedAt: new Date().toISOString(),
     };
   }
 
+  private async runRuntimeGraph(): Promise<void> {
+    const document = await this.getSourceDocument();
+    if (!document) {
+      void vscode.window.showErrorMessage("StateViz could not find an active Python file.");
+      return;
+    }
+
+    const marker = vscode.workspace
+      .getConfiguration("stateviz")
+      .get<string>("marker", "# stateviz: langgraph");
+    const directive = parseStateVizDirective(document.getText(), marker);
+
+    if (!directive.enabled) {
+      void vscode.window.showErrorMessage(
+        "StateViz runtime mode requires an opt-in marker like '# stateviz: langgraph'.",
+      );
+      return;
+    }
+
+    this.runtimeState = {
+      documentUri: document.uri.toString(),
+      status: "loading",
+      symbol: directive.runtimeSymbol ?? "auto-detect",
+    };
+    await this.refresh();
+
+    try {
+      const result = await inspectRuntimeGraph({
+        document,
+        symbol: directive.runtimeSymbol,
+        helperPath: vscode.Uri.joinPath(
+          this.context.extensionUri,
+          "media",
+          "stateviz_runtime_helper.py",
+        ).fsPath,
+      });
+      this.runtimeState = {
+        documentUri: document.uri.toString(),
+        status: "success",
+        result,
+      };
+    } catch (error) {
+      this.runtimeState = {
+        documentUri: document.uri.toString(),
+        status: "error",
+        symbol: directive.runtimeSymbol ?? "auto-detect",
+        message: error instanceof Error ? error.message : "Unknown runtime graph failure.",
+      };
+    }
+
+    await this.refresh();
+  }
+
+  private scheduleRetryRefresh(): void {
+    if (this.retryHandle || !this.panel || this.retryCount >= 6) {
+      return;
+    }
+
+    this.retryCount += 1;
+    this.retryHandle = setTimeout(() => {
+      this.retryHandle = undefined;
+      void this.refresh();
+    }, 250);
+  }
+
+  private clearRetryRefresh(): void {
+    this.retryCount = 0;
+    if (this.retryHandle) {
+      clearTimeout(this.retryHandle);
+      this.retryHandle = undefined;
+    }
+  }
+
   private getHtml(webview: vscode.Webview): string {
     const nonce = getNonce();
     const mermaidUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(
-        this.context.extensionUri,
-        "node_modules",
-        "mermaid",
-        "dist",
-        "mermaid.min.js",
-      ),
+      vscode.Uri.joinPath(this.context.extensionUri, "media", "mermaid.min.js"),
     );
 
     return `<!DOCTYPE html>
@@ -261,6 +502,22 @@ export class StateVizPanel {
         margin: 0;
         color: var(--text-main);
       }
+      .status-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .source-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text-muted);
+        font-size: 12px;
+      }
       .selector {
         width: 100%;
         padding: 7px 8px;
@@ -304,6 +561,10 @@ export class StateVizPanel {
       }
       .toolbar-button:hover {
         background: #31394a;
+      }
+      .toolbar-button[disabled] {
+        opacity: 0.55;
+        cursor: default;
       }
       .graph-shell {
         border-radius: 18px;
@@ -390,7 +651,10 @@ export class StateVizPanel {
     <div class="shell">
       <section class="card">
         <div class="eyebrow">Active File</div>
-        <h1 class="title" id="fileName">Waiting for a Python file</h1>
+        <div class="status-row">
+          <h1 class="title" id="fileName">Waiting for a Python file</h1>
+          <span class="source-badge" id="sourceBadge">Static</span>
+        </div>
         <p class="message" id="statusMessage"></p>
         <p class="meta" id="updatedAt"></p>
       </section>
@@ -409,6 +673,7 @@ export class StateVizPanel {
             <div class="meta">Drag to pan. Use mouse wheel or controls to zoom.</div>
           </div>
           <div class="toolbar-actions">
+            <button class="toolbar-button" id="runtimeButton" type="button">Use graph.get_graph()</button>
             <button class="toolbar-button" id="zoomOutButton" type="button">-</button>
             <button class="toolbar-button" id="resetButton" type="button">Reset</button>
             <button class="toolbar-button" id="zoomInButton" type="button">+</button>
@@ -426,7 +691,14 @@ export class StateVizPanel {
     <script nonce="${nonce}" src="${mermaidUri}"></script>
     <script nonce="${nonce}">
       const vscode = acquireVsCodeApi();
-      const state = { graphs: [], selectedGraphId: undefined };
+      const state = {
+        graphs: [],
+        selectedGraphId: undefined,
+        runtimeEnabled: false,
+        runtimeBusy: false,
+        runtimeSymbol: undefined,
+        sourceMode: "static"
+      };
 
       mermaid.initialize({
         startOnLoad: false,
@@ -447,6 +719,7 @@ export class StateVizPanel {
       });
 
       const fileName = document.getElementById("fileName");
+      const sourceBadge = document.getElementById("sourceBadge");
       const statusMessage = document.getElementById("statusMessage");
       const updatedAt = document.getElementById("updatedAt");
       const graphCard = document.getElementById("graphCard");
@@ -457,6 +730,7 @@ export class StateVizPanel {
       const graphSelector = document.getElementById("graphSelector");
       const warningsCard = document.getElementById("warningsCard");
       const warnings = document.getElementById("warnings");
+      const runtimeButton = document.getElementById("runtimeButton");
       const zoomInButton = document.getElementById("zoomInButton");
       const zoomOutButton = document.getElementById("zoomOutButton");
       const resetButton = document.getElementById("resetButton");
@@ -484,6 +758,9 @@ export class StateVizPanel {
         renderGraph();
       });
 
+      runtimeButton.addEventListener("click", () => {
+        vscode.postMessage({ type: "runRuntimeGraph" });
+      });
       zoomInButton.addEventListener("click", () => zoomBy(1.15));
       zoomOutButton.addEventListener("click", () => zoomBy(1 / 1.15));
       resetButton.addEventListener("click", () => centerGraph(true));
@@ -682,9 +959,20 @@ export class StateVizPanel {
       function renderView(payload) {
         state.graphs = payload.graphs;
         state.selectedGraphId = payload.selectedGraphId;
+        state.runtimeEnabled = payload.runtimeEnabled;
+        state.runtimeBusy = payload.runtimeBusy === true;
+        state.runtimeSymbol = payload.runtimeSymbol;
+        state.sourceMode = payload.sourceMode || "static";
         fileName.textContent = payload.fileName ? payload.fileName.split(/[\\\\/]/).pop() : "Waiting for a Python file";
+        sourceBadge.textContent = state.sourceMode === "runtime" ? "Runtime" : "Static";
         statusMessage.textContent = payload.message;
         updatedAt.textContent = payload.updatedAt ? "Last update: " + new Date(payload.updatedAt).toLocaleTimeString() : "";
+        runtimeButton.disabled = !state.runtimeEnabled || state.runtimeBusy;
+        runtimeButton.textContent = state.runtimeBusy
+          ? "Loading runtime graph..."
+          : state.runtimeSymbol
+            ? "Use graph.get_graph()"
+            : "Add # stateviz: graph=<symbol>";
         renderSelector();
         renderWarnings([...(payload.warnings || []), ...(state.graphs.find((graph) => graph.id === state.selectedGraphId)?.warnings || [])]);
         void renderGraph(payload.preserveViewport === true);

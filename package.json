@@ -2,7 +2,7 @@
   "name": "stateviz",
   "displayName": "StateViz",
   "description": "Preview LangGraph StateGraph flows from Python files directly beside the editor in VS Code.",
-  "version": "0.0.1",
+  "version": "1.0.11",
   "publisher": "vigneshkarnika",
   "license": "MIT",
   "keywords": [
@@ -37,7 +37,11 @@
   "main": "./dist/extension.js",
   "files": [
     "dist/**",
-    "media/**",
+    "media/*.png",
+    "media/*.svg",
+    "media/*.js",
+    "media/*.py",
+    "media/readme/**",
     "README.md",
     "LICENSE",
     "package.json"
